@@ -1,0 +1,13 @@
+package org.itri.ImageConverter;
+
+/**
+ * Hello world!
+ *
+ */
+public class ImageConverter 
+{
+    public static void main( String[] args )
+    {
+        System.out.println( "Hello World!" );
+    }
+}
