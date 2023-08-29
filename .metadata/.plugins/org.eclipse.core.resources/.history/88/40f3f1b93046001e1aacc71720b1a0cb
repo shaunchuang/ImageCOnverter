@@ -33,7 +33,6 @@ public class ImageConverter {
 	static String GAP_REQUEST = "";
 	static String END_REQUEST = "";
 	static final int BATCH_SIZE = 1000;
-	
 	// 設定logger存到D槽
 	private static final Logger LOGGER = Logger.getLogger(ImageConverter.class.getName());
 	static {
@@ -45,12 +44,41 @@ public class ImageConverter {
 			LOGGER.severe("Failed to set up log handler: " + e.getMessage());
 		}
 	}
-	
 	// main function here
 	public static void main(String[] args) {
 		
+		if (args.length != 4) {
+	        System.out.println("Usage: java ImageConverter -ip <IP_ADDRESS> -g <IMAGE_PATH>");
+	        return;
+	    }
+
 	    String ipAddress = null;
 	    String imagePath = null;
+
+	    // Parse the arguments
+	    for (int i = 0; i < args.length; i++) {
+	        switch (args[i]) {
+	            case "-ip":
+	                if (i + 1 < args.length) {
+	                    ipAddress = args[++i];
+	                }
+	                break;
+	            case "-g":
+	                if (i + 1 < args.length) {
+	                    imagePath = args[++i];
+	                }
+	                break;
+	            default:
+	                System.out.println("Unknown argument: " + args[i]);
+	                System.out.println("Usage: java ImageConverter -ip <IP_ADDRESS> -g <IMAGE_PATH>");
+	                return;
+	        }
+	    }
+
+	    if (ipAddress == null || imagePath == null) {
+	        System.out.println("Usage: java ImageConverter -ip <IP_ADDRESS> -g <IMAGE_PATH>");
+	        return;
+	    }
 		
 	    IPADDRESS = ipAddress;
 	    BASE_URL = "http://" + IPADDRESS + "/";
@@ -80,7 +108,7 @@ public class ImageConverter {
 			// 保存結果到txt文件
 			//saveToTxt(result, "D:\\output.txt");
 
-			// 上傳結果到給電子紙並更新
+			// 上傳結果到給電子紙
 			uploadInBatches(result);
 
 			System.out.println("上傳完成");
@@ -113,6 +141,34 @@ public class ImageConverter {
 		return result;
 	}
 
+	//將圖片轉成Binary 二元圖片
+//	public static int[][] convertToBinary(BufferedImage image) {
+//		int width = image.getWidth();
+//		int height = image.getHeight();
+//		int[][] result = new int[height][width];
+//
+//		for (int y = 0; y < height; y++) {
+//			for (int x = 0; x < width; x++) {
+//				int color = image.getRGB(x, y);
+//
+//				byte red = (byte)((color >> 16) & 0xff);
+//				byte green = (byte)((color >> 8) & 0xff);
+//				byte blue = (byte)(color & 0xff);
+//
+//				
+//				System.out.println(red+","+green+","+blue);
+//				// 計算灰度值
+//				int gray = (red<<16 + green<<8 + blue);
+//
+//				// 設定二進制值
+//				result[y][x] = (gray == 0xffffff) ? 0 : 1;
+//				int color = image.getRGB(x, y) & 0xffffff;
+//				result[y][x] = (color > 0) ? 0 : 1;
+//			}
+//		}
+//
+//		return result;
+//	}
 	
     // 將binary 資訊轉成String
 	public static String convertImageToString(int[][] binaryImage) {
@@ -156,6 +212,16 @@ public class ImageConverter {
 	        try (CloseableHttpResponse response = httpClient.execute(httpPost)) {
 	            int statusCode = response.getStatusLine().getStatusCode();
 
+	            // Uncomment if you want to print the response
+	            // String responseBody = EntityUtils.toString(response.getEntity());
+	            // System.out.println(responseBody);
+
+	            /*if (statusCode == 200) {
+	                System.out.println("Successfully sent data to: " + requestUrl);
+	            } else {
+	                System.out.println("Failed to send data. Response code: " + statusCode);
+	            }*/
+
 	        }
 	    }catch (NoHttpResponseException e) {
 	            //System.out.println("No response from server at: " + requestUrl);
@@ -173,6 +239,9 @@ public class ImageConverter {
 		for (int i = 0; i < data.length(); i += BATCH_SIZE) {
 			
 			String batch = data.substring(i, Math.min(i + BATCH_SIZE, data.length()));
+			//String hexString = Hex.encodeHexString(batch.getBytes());
+			//System.out.println(hexString);
+            
 			
 			String requestUrl = constructRequestUrl(batch);
 			LOGGER.info(batch);
@@ -181,7 +250,12 @@ public class ImageConverter {
 			LOGGER.info(requestUrl);
 
 			sendPostRequest(requestUrl);
-
+//			try {
+//				Thread.sleep(1000);
+//			} catch (InterruptedException e) {
+//			
+//				e.printStackTrace();
+//			}
 		}
 
 		 sendPostRequest(NEXT_REQUEST);
