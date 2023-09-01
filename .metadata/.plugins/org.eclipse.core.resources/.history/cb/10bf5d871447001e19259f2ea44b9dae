@@ -1,0 +1,219 @@
+package org.itri.ImageConverter;
+
+import java.awt.image.BufferedImage;
+import java.net.SocketException;
+
+import org.apache.http.NoHttpResponseException;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+
+public class ImageConverter {
+
+	static String BASE_URL = "";
+	static String IPADDRESS = "";
+	static String START_REQUEST = "";
+	static String NEXT_REQUEST = "";
+	static String GAP_REQUEST = "";
+	static String END_REQUEST = "";
+	static int BATCH_SIZE;
+
+	// 更新電子紙資訊
+	public static void EPaperPost(BufferedImage image, String ipAddress) {
+		IPADDRESS = ipAddress;
+		BASE_URL = "http://" + IPADDRESS + "/";
+
+		// 檢查圖像尺寸
+		if (image.getWidth() != 400 || image.getHeight() != 300) {
+			System.out.println(IPADDRESS + "Image dimensions are not 400x300.");
+			return;
+		}
+
+		// 轉換圖像
+		int[][] binaryImage = convertToBinary(image);
+
+		// 將二進制圖像轉換為字符串
+		String result = convertImageToString(binaryImage);
+
+		// 上傳結果給電子紙並更新
+		// uploadInBatchesESP32(result);
+		System.out.println("電子紙IP： " + IPADDRESS + " 資訊開始上傳");
+		uploadInBatchesESP8266(result);
+
+		System.out.println("電子紙IP： " + IPADDRESS + " 更新完成");
+	}
+
+	public static int[][] convertToBinary(BufferedImage image) {
+		int width = image.getWidth();
+		int height = image.getHeight();
+		int[][] result = new int[height][width];
+
+		for (int y = 0; y < height; y++) {
+			for (int x = 0; x < width; x++) {
+				int color = image.getRGB(x, y);
+				int red = (color >> 16) & 0xff;
+				int green = (color >> 8) & 0xff;
+				int blue = color & 0xff;
+
+				// 計算灰階度值
+				int gray = (red + green + blue) / 3;
+
+				// 設定二進制值
+				result[y][x] = gray < 200 ? 0 : 1;
+			}
+		}
+
+		return result;
+	}
+
+	// 將binary 資訊轉成String
+	public static String convertImageToString(int[][] binaryImage) {
+		StringBuilder sb = new StringBuilder();
+
+		for (int y = 0; y < binaryImage.length; y++) {
+			for (int x = 0; x < binaryImage[y].length; x += 8) {
+				int value = 0;
+				for (int i = 0; i < 8; i++) {
+					value = (value << 1) | binaryImage[y][x + i];
+				}
+				sb.append(byteToStr(value));
+			}
+		}
+
+		return sb.toString();
+	}
+
+	// 將byte轉換成String
+	public static String byteToStr(int v) {
+		char char1 = (char) ((v & 0xF) + 97);
+		char char2 = (char) (((v >> 4) & 0xF) + 97);
+		return new String(new char[] { char1, char2 });
+	}
+
+	// 傳送http Post 請求
+	private static void sendPostRequest(String requestUrl, String payload) {
+		try (CloseableHttpClient httpClient = HttpClients.createDefault()) {
+			HttpPost httpPost = new HttpPost(requestUrl);
+			httpPost.setEntity(new StringEntity(payload)); // Sending empty data
+
+			try (CloseableHttpResponse response = httpClient.execute(httpPost)) {
+				int statusCode = response.getStatusLine().getStatusCode();
+				if (statusCode == 200) {
+					System.out.println("Response is OK");
+					// Handle the response here
+				} else {
+					System.out.println(IPADDRESS + "Response is Bad. Status code: " + statusCode);
+				}
+			}
+		} catch (NoHttpResponseException e) { // 使用esp32程式上傳會反覆出現NoHttpResponseException
+			// System.out.println("No response from server at: " + requestUrl);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	private static void sendPostRequest(String requestUrl, String payload, int retries) {
+		if (retries == 0) {
+			System.out.println(IPADDRESS + "***連線失敗***已重試連線三次***");
+			return;
+		}
+
+		try (CloseableHttpClient httpClient = HttpClients.createDefault()) {
+			
+			HttpPost httpPost = new HttpPost(requestUrl);
+			httpPost.setEntity(new StringEntity(payload));
+
+			try (CloseableHttpResponse response = httpClient.execute(httpPost)) {
+				int statusCode = response.getStatusLine().getStatusCode();
+				if (statusCode == 200) {
+					System.out.println("Response is OK");
+				} else {
+					System.out.println(IPADDRESS + "Response is Bad. Status code: " + statusCode);
+				}
+			}
+		} catch (NoHttpResponseException e) {
+			// System.out.println("No response from server at: " + requestUrl);
+		} catch (SocketException e) {
+			System.out.println(IPADDRESS + "SocketException!! 五秒後重新連線");
+			try {
+				Thread.sleep(5000);
+			} catch (InterruptedException ie) {
+				Thread.currentThread().interrupt();
+			}
+			sendPostRequest(requestUrl, payload, retries - 1);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	// 批次上傳資料 for ESP32
+	public static void uploadInBatchesESP32(String data) {
+		BATCH_SIZE = 1000;
+		START_REQUEST = BASE_URL + "EPDI_";
+		NEXT_REQUEST = BASE_URL + "NEXT_";
+		String repeatedStr = "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppiodaLOAD_";
+		GAP_REQUEST = BASE_URL + repeatedStr;
+		END_REQUEST = BASE_URL + "SHOW_";
+		// 發送起始請求
+		sendPostRequest(START_REQUEST, "", 3);
+		
+        // 發送電子紙圖像資訊
+		for (int i = 0; i < data.length(); i += BATCH_SIZE) {
+
+			String batch = data.substring(i, Math.min(i + BATCH_SIZE, data.length()));
+
+			String requestUrl = BASE_URL + batch + "iodaLOAD_";
+
+			sendPostRequest(requestUrl, "", 3);
+
+		}
+		
+        //發送NEXT訊號
+		sendPostRequest(NEXT_REQUEST, "", 3);
+		
+		//發送GAP訊號
+		for (int i = 0; i < 30; i++) {
+			sendPostRequest(GAP_REQUEST, "", 3);
+		}
+		// 發送結束請求
+		sendPostRequest(END_REQUEST, "", 3);
+	}
+
+	// 批次上傳資料 ESP8266
+	public static void uploadInBatchesESP8266(String data) {
+		// 4.2b v2 為 "cc"，4.2 為 "na"
+		BATCH_SIZE = 1500;
+		String repeatedStr = "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp";
+		START_REQUEST = BASE_URL + "EPD";
+		NEXT_REQUEST = BASE_URL + "NEXT";
+		END_REQUEST = BASE_URL + "SHOW";
+
+		// 發送起始請求
+		sendPostRequest(START_REQUEST, "na", 3);
+		
+		// 發送電子紙圖像資訊
+		for (int i = 0; i < data.length(); i += BATCH_SIZE) {
+
+			String batch = data.substring(i, Math.min(i + BATCH_SIZE, data.length()));
+
+			String payload = batch + "mnfaLOAD";
+
+			sendPostRequest(BASE_URL + "LOAD", payload, 3);
+			
+		}
+		
+		//發送NEXT訊號
+		sendPostRequest(NEXT_REQUEST, "", 3);
+        
+		//發送GAP訊號
+		for (int i = 0; i < 20; i++) {
+			sendPostRequest(BASE_URL + "LOAD", repeatedStr + "mnfaLOAD", 3);
+		}
+		
+		// 發送結束請求
+		sendPostRequest(END_REQUEST, "", 3);
+	}
+
+}

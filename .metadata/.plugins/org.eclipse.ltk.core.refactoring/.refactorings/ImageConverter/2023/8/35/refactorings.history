@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">
+<refactoring comment="Rename type &apos;org.itri.ImageConverter.Epaper8266&apos; to &apos;UpdateEpaper&apos;&#x0D;&#x0A;- Original project: &apos;ImageConverter&apos;&#x0D;&#x0A;- Original element: &apos;org.itri.ImageConverter.Epaper8266&apos;&#x0D;&#x0A;- Renamed element: &apos;org.itri.ImageConverter.UpdateEpaper&apos;&#x0D;&#x0A;- Update references to refactored element&#x0D;&#x0A;- Update textual occurrences in comments and strings" description="Rename type &apos;Epaper8266&apos;" flags="589830" id="org.eclipse.jdt.ui.rename.type" input="/src\/main\/java=/optional=/true=/=/maven.pomderived=/true=/&lt;org.itri.ImageConverter{Epaper8266.java[Epaper8266" matchStrategy="1" name="UpdateEpaper" qualified="false" references="true" similarDeclarations="false" stamp="1693300206658" textual="false" version="1.0"/>
+</session>

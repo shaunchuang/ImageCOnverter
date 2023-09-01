@@ -2,6 +2,7 @@
 <section name="Workbench">
 	<section name="MavenProjectWizardLocationPage">
 		<list key="location">
+			<item value="C:\Users\ITRI_User\eclipse-workspace\ImageConverter\ImageConverter\src\main\java\org\itri\ImageConverter\UpdateEpaper.java"/>
 			<item value="D:\ImageConverter"/>
 		</list>
 		<list key="projectNameTemplate">
@@ -26,13 +27,10 @@
 	</section>
 	<section name="Maven2ProjectWizardArchifactPage">
 		<list key="package">
-			<item value="org.itri.ImageConverter"/>
 		</list>
 		<list key="groupId">
-			<item value="org.itri"/>
 		</list>
 		<list key="artifactId">
-			<item value="ImageConverter"/>
 		</list>
 		<list key="projectNameTemplate">
 			<item value="[artifactId]"/>
@@ -68,5 +66,7 @@
 	<section name="org.eclipse.m2e.core.pom.overview">
 	</section>
 	<section name="org.eclipse.m2e.core.pom.dependencies">
+	</section>
+	<section name="org.eclipse.m2e.core.ui.internal.wizards.CustomArchetypeDialog">
 	</section>
 </section>
