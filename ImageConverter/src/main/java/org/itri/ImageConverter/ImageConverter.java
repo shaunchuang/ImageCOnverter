@@ -1,18 +1,13 @@
 package org.itri.ImageConverter;
 
-import java.awt.Desktop;
 import java.awt.image.BufferedImage;
-import java.io.File;
-import java.io.IOException;
+
 import java.net.InetAddress;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
-import java.net.URI;
-import java.net.UnknownHostException;
+
 import java.util.logging.Logger;
 import java.util.logging.Level;
-
-import javax.imageio.ImageIO;
 
 import org.apache.http.NoHttpResponseException;
 import org.apache.http.client.config.RequestConfig;
@@ -26,18 +21,8 @@ import org.apache.http.impl.client.HttpClients;
 public class ImageConverter {
 	private static final Logger logger = Logger.getLogger(ImageConverter.class.getName());
 
-	static String BASE_URL = "";
-	static String START_REQUEST = "";
-	static String NEXT_REQUEST = "";
-	static String GAP_REQUEST = "";
-	static String END_REQUEST = "";
-	static int BATCH_SIZE;
-	static String IPADDRESS = "";
-
 	// 更新電子紙資訊
 	public static void EPaperPost(BufferedImage image, String ipAddress) {
-		IPADDRESS = ipAddress;
-		BASE_URL = "http://" + IPADDRESS + "/";
 
 		// 檢查圖像尺寸
 		if (image.getWidth() != 400 || image.getHeight() != 300) {
@@ -52,13 +37,14 @@ public class ImageConverter {
 		String result = convertImageToString(binaryImage);
 
 		// 上傳結果給電子紙並更新
-		logger.log(Level.INFO, "電子紙IP： " + IPADDRESS + " 資訊開始上傳");
-		if(IPADDRESS == "192.168.225.203" || IPADDRESS == "192.168.225.204" || IPADDRESS == "192.168.225.205") {
-			logger.log(Level.INFO, "UpLoad ESP32");
-			uploadInBatchesESP32(result);			
+		logger.log(Level.INFO, "電子紙IP： " + ipAddress + " 資訊開始上傳");
+		if (ipAddress.equals("192.168.225.203") || ipAddress.equalsIgnoreCase("192.168.225.204")
+				|| ipAddress.equals("192.168.225.205")) {
+			logger.log(Level.INFO, "Upload ESP32");
+			uploadInBatchesESP32(ipAddress, result);
 		} else {
-			uploadInBatchesESP8266(result);
-			logger.log(Level.INFO, "UpLoad ESP8266");
+			logger.log(Level.INFO, "Upload ESP8266");
+			uploadInBatchesESP8266(ipAddress, result);
 		}
 	}
 
@@ -109,201 +95,117 @@ public class ImageConverter {
 		return new String(new char[] { char1, char2 });
 	}
 
+	private static void sendPostRequest(String requestUrl, String payload, String ipAddress, int retries, int timeout,
+			boolean allowRetry) throws Exception {
 
-	private static void sendPostRequest(String requestUrl, String payload, int retries,int timeout, boolean allowRetry) throws Exception {
-		if (!isHostReachable(IPADDRESS, 5000, 3)) {
+		if (!isHostReachable(ipAddress, 5000, 3)) {
 			logger.log(Level.INFO, "電子紙無法連線. 取消作業");
-			throw new Exception(IPADDRESS + " 電子紙資訊上傳失敗");
+			throw new Exception(ipAddress + " 電子紙資訊上傳失敗");
 		}
 
 		if (retries == 0) {
-			logger.log(Level.INFO, IPADDRESS + " ***連線失敗***已重試連線三次***");
-			throw new Exception(IPADDRESS + " 電子紙資訊上傳失敗");
+			logger.log(Level.INFO, ipAddress + " ***連線失敗***已重試連線三次***");
+			throw new Exception(ipAddress + " 電子紙資訊上傳失敗");
 		}
 
-		try {
-	        RequestConfig requestConfig = RequestConfig.custom()
-	                .setSocketTimeout(timeout)
-	                .setConnectTimeout(timeout)
-	                .build();
+		RequestConfig requestConfig = RequestConfig.custom().setSocketTimeout(timeout).setConnectTimeout(timeout)
+				.build();
+		try (CloseableHttpClient httpClient = HttpClients.custom().setDefaultRequestConfig(requestConfig).build();) {
+//		try (CloseableHttpClient httpClient = HttpClients.createDefault();){
 
-	        CloseableHttpClient httpClient = HttpClients.custom()
-	                .setDefaultRequestConfig(requestConfig)
-	                .build();
-	        
-			logger.log(Level.INFO, "Create connection "+ IPADDRESS);
+			logger.log(Level.INFO, "Create connection " + ipAddress);
 			HttpPost httpPost = new HttpPost(requestUrl);
 			httpPost.setEntity(new StringEntity(payload));
-
-			CloseableHttpResponse response = httpClient.execute(httpPost);
-			logger.log(Level.INFO, "E Paper info posted");
-			int statusCode = response.getStatusLine().getStatusCode();
-			if (statusCode == 200) {
-				logger.log(Level.INFO, "Response is OK");
-			} else {
-				logger.log(Level.INFO, IPADDRESS + " Response is Bad. Status code: " + statusCode);
-	            if (allowRetry) {
-	                sendPostRequest(requestUrl, payload, retries - 1, 5000, allowRetry);
-	            }
+			try (CloseableHttpResponse response = httpClient.execute(httpPost);) {
+				logger.log(Level.INFO, "E Paper info posted");
+				int statusCode = response.getStatusLine().getStatusCode();
+				if (statusCode == 200) {
+					logger.log(Level.INFO, "Response is OK");
+				} else {
+					logger.log(Level.INFO, ipAddress + " Response is Bad. Status code: " + statusCode);
+					if (allowRetry) {
+						sendPostRequest(requestUrl, payload, ipAddress, retries - 1, 5000, allowRetry);
+					}
+				}
 			}
-			
+
 		} catch (SocketTimeoutException e) {
-	        logger.log(Level.INFO, IPADDRESS + " Timeout!! 五秒內重試連線");
+			logger.log(Level.INFO, ipAddress + " Timeout!! 五秒內重試連線");
 			try {
 				Thread.sleep(2500);
-				refreshURL(BASE_URL);
+				refreshURL(ipAddress);
 				Thread.sleep(2500);
 			} catch (InterruptedException ie) {
 				Thread.currentThread().interrupt();
 			}
-            if (allowRetry) {
-                sendPostRequest(requestUrl, payload, retries - 1, 5000, allowRetry);
-            }
+			if (allowRetry) {
+				sendPostRequest(requestUrl, payload, ipAddress, retries - 1, 5000, allowRetry);
+			}
 
 		} catch (NoHttpResponseException e) {
 			logger.log(Level.INFO, "No response from server at: " + requestUrl);
+
 		} catch (SocketException e) {
-			logger.log(Level.INFO, IPADDRESS + " SocketException!! 五秒內重試連線");
+			logger.log(Level.INFO, ipAddress + " SocketException!! 五秒內重試連線");
 			try {
 				Thread.sleep(2500);
-				refreshURL(BASE_URL);
+				refreshURL(ipAddress);
 				Thread.sleep(2500);
 			} catch (InterruptedException ie) {
 				Thread.currentThread().interrupt();
 			}
-            if (allowRetry) {
-                sendPostRequest(requestUrl, payload, retries - 1, 5000, allowRetry);
-            }
-		
+			if (allowRetry) {
+				sendPostRequest(requestUrl, payload, ipAddress, retries - 1, 5000, allowRetry);
+			}
+
 		} catch (Exception e) {
 			logger.log(Level.SEVERE, e.toString(), e);
 			try {
 				Thread.sleep(2500);
-				refreshURL(BASE_URL);
+				refreshURL(ipAddress);
 				Thread.sleep(2500);
 			} catch (InterruptedException ie) {
 				Thread.currentThread().interrupt();
 			}
-            if (allowRetry) {
-                sendPostRequest(requestUrl, payload, retries - 1, 5000, allowRetry);
-            }
-		}
-	}
-	
-	private static void sendPostRequestESP32(String requestUrl, String payload, int retries,int timeout, boolean allowRetry) throws Exception {
-		if (!isHostReachable(IPADDRESS, 5000, 3)) {
-			logger.log(Level.INFO, "電子紙無法連線. 取消作業");
-			throw new Exception(IPADDRESS + " 電子紙資訊上傳失敗");
-		}
-
-		if (retries == 0) {
-			logger.log(Level.INFO, IPADDRESS + " ***連線失敗***已重試連線三次***");
-			throw new Exception(IPADDRESS + " 電子紙資訊上傳失敗");
-		}
-
-		try {
-	        RequestConfig requestConfig = RequestConfig.custom()
-	                .setSocketTimeout(timeout)
-//	                .setConnectTimeout(timeout)
-	                .build();
-
-	        CloseableHttpClient httpClient = HttpClients.custom()
-	                .setDefaultRequestConfig(requestConfig)
-	                .build();
-	        
-//	        CloseableHttpClient httpClient = HttpClients.createDefault();
-	        
-			logger.log(Level.INFO, "Create connection "+ IPADDRESS);
-			HttpPost httpPost = new HttpPost(requestUrl);
-			httpPost.setEntity(new StringEntity(payload));
-
-			CloseableHttpResponse response = httpClient.execute(httpPost);
-			logger.log(Level.INFO, "E Paper info posted");
-			int statusCode = response.getStatusLine().getStatusCode();
-			if (statusCode == 200) {
-				logger.log(Level.INFO, "Response is OK");
-			} else {
-				logger.log(Level.INFO, IPADDRESS + " Response is Bad. Status code: " + statusCode);
-	            if (allowRetry) {
-	                sendPostRequest(requestUrl, payload, retries - 1, 5000, allowRetry);
-	            }
+			if (allowRetry) {
+				sendPostRequest(requestUrl, payload, ipAddress, retries - 1, 5000, allowRetry);
 			}
-			
-		} catch (SocketTimeoutException e) {
-	        logger.log(Level.INFO, IPADDRESS + " Timeout!! 五秒內重試連線");
-			try {
-				Thread.sleep(2500);
-				refreshURL(BASE_URL);
-				Thread.sleep(2500);
-			} catch (InterruptedException ie) {
-				Thread.currentThread().interrupt();
-			}
-            if (allowRetry) {
-                sendPostRequest(requestUrl, payload, retries - 1, 5000, allowRetry);
-            }
-
-		} catch (NoHttpResponseException e) {
-			logger.log(Level.INFO, "No response from server at: " + requestUrl);
-		} catch (SocketException e) {
-			logger.log(Level.INFO, IPADDRESS + " SocketException!! 五秒內重試連線");
-			try {
-				Thread.sleep(2500);
-				refreshURL(BASE_URL);
-				Thread.sleep(2500);
-			} catch (InterruptedException ie) {
-				Thread.currentThread().interrupt();
-			}
-            if (allowRetry) {
-                sendPostRequest(requestUrl, payload, retries - 1, 5000, allowRetry);
-            }
-		
-		} catch (Exception e) {
-			logger.log(Level.SEVERE, e.toString(), e);
-			try {
-				Thread.sleep(2500);
-				refreshURL(BASE_URL);
-				Thread.sleep(2500);
-			} catch (InterruptedException ie) {
-				Thread.currentThread().interrupt();
-			}
-            if (allowRetry) {
-                sendPostRequest(requestUrl, payload, retries - 1, 5000, allowRetry);
-            }
 		}
 	}
 
 	// 批次上傳資料 for ESP32
-	public static void uploadInBatchesESP32(String data) {
-		BATCH_SIZE = 1000;
-		START_REQUEST = BASE_URL + "EPDI_";
-		NEXT_REQUEST = BASE_URL + "NEXT_";
+	public static void uploadInBatchesESP32(String ipAddress, String data) {
+		int batchSize = 1000;
+		String baseUrl = "http://" + ipAddress + "/";
+		String startRequest = baseUrl + "EPDI_";
+		String nextRequest = baseUrl + "NEXT_";
 		String repeatedStr = "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppiodaLOAD_";
-		GAP_REQUEST = BASE_URL + repeatedStr;
-		END_REQUEST = BASE_URL + "SHOW_";
+		String gapRequest = baseUrl + repeatedStr;
+		String endRequest = baseUrl + "SHOW_";
 		try {
 			// 發送起始請求
-			sendPostRequestESP32(START_REQUEST, "", 10, 60000, true);
+			sendPostRequest(startRequest, "", ipAddress, 10, 45000, true);
 
 			// 發送電子紙圖像資訊
-			for (int i = 0; i < data.length(); i += BATCH_SIZE) {
+			for (int i = 0; i < data.length(); i += batchSize) {
 
-				String batch = data.substring(i, Math.min(i + BATCH_SIZE, data.length()));
+				String batch = data.substring(i, Math.min(i + batchSize, data.length()));
 
-				String requestUrl = BASE_URL + batch + "iodaLOAD_";
+				String requestUrl = baseUrl + batch + "iodaLOAD_";
 
-				sendPostRequestESP32(requestUrl, "", 3, 5000, true);
+				sendPostRequest(requestUrl, "", ipAddress, 3, 5000, true);
 			}
 
 			// 發送NEXT訊號
-			sendPostRequestESP32(NEXT_REQUEST, "", 3, 5000, true);
+			sendPostRequest(nextRequest, "", ipAddress, 3, 5000, true);
 
 			// 發送GAP訊號
 			for (int i = 0; i < 30; i++) {
-				sendPostRequestESP32(GAP_REQUEST, "", 3, 5000, true);
+				sendPostRequest(gapRequest, "", ipAddress, 3, 5000, true);
 			}
 			// 發送結束請求
-			sendPostRequestESP32(END_REQUEST, "", 3, 30000, false);
-			logger.log(Level.INFO, "電子紙IP： " + IPADDRESS + " 更新完成");
+			sendPostRequest(endRequest, "", ipAddress, 3, 30000, false);
+			logger.log(Level.INFO, "電子紙IP： " + ipAddress + " 更新完成");
 		} catch (Exception e) {
 			logger.log(Level.SEVERE, e.toString(), e);
 			return;
@@ -311,139 +213,118 @@ public class ImageConverter {
 	}
 
 	// 批次上傳資料 ESP8266
-	public static void uploadInBatchesESP8266(String data) {
-		BATCH_SIZE = 1500;
+	public static void uploadInBatchesESP8266(String ipAddress, String data) {
+		int batchSize = 1500;
+		String baseUrl = "http://" + ipAddress + "/";
 		String repeatedStr = "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp";
-		START_REQUEST = BASE_URL + "EPD";
-		NEXT_REQUEST = BASE_URL + "NEXT";
-		END_REQUEST = BASE_URL + "SHOW";
+		String startRequest = baseUrl + "EPD";
+		String nextRequest = baseUrl + "NEXT";
+		String endRequest = baseUrl + "SHOW";
 		try {
 
 			// 發送起始請求
 			// 4.2b v2 為 "cc"，4.2 為 "na"
-			if (checkIPRange(IPADDRESS) == "w") {
-				sendPostRequest(START_REQUEST, "na", 10, 20000, true);				
-			} else if (checkIPRange(IPADDRESS) == "r"){
-				sendPostRequest(START_REQUEST, "cc", 10, 20000, true);
+			if (isIPInRange(ipAddress, "192.168.225.100", "192.168.225.200")) {
+				sendPostRequest(startRequest, "na", ipAddress, 10, 20000, true);
+			} else if (isIPInRange(ipAddress, "192.168.225.200", "192.168.225.254")) {
+				sendPostRequest(startRequest, "cc", ipAddress, 10, 20000, true);
 			} else {
 				logger.log(Level.INFO, "IP 不位於所在範圍內");
 			}
 
 			// 發送電子紙圖像資訊
-			for (int i = 0; i < data.length(); i += BATCH_SIZE) {
+			for (int i = 0; i < data.length(); i += batchSize) {
 
-				String batch = data.substring(i, Math.min(i + BATCH_SIZE, data.length()));
+				String batch = data.substring(i, Math.min(i + batchSize, data.length()));
 
 				String payload = batch + "mnfaLOAD";
 
-				sendPostRequest(BASE_URL + "LOAD", payload, 3,5000, true);
+				sendPostRequest(baseUrl + "LOAD", payload, ipAddress, 3, 5000, true);
 
 			}
 
 			// 發送NEXT訊號
-			sendPostRequest(NEXT_REQUEST, "", 3, 5000, true);
+			sendPostRequest(nextRequest, "", ipAddress, 3, 5000, true);
 
 			// 發送GAP訊號
 			for (int i = 0; i < 20; i++) {
-				sendPostRequest(BASE_URL + "LOAD", repeatedStr + "mnfaLOAD", 3, 5000, true);
+				sendPostRequest(baseUrl + "LOAD", repeatedStr + "mnfaLOAD", ipAddress, 3, 5000, true);
 			}
 
 			// 發送結束請求
-			sendPostRequest(END_REQUEST, "", 3, 45000, false);
-			logger.log(Level.INFO, "電子紙IP： " + IPADDRESS + " 更新完成");
+			sendPostRequest(endRequest, "", ipAddress, 3, 45000, false);
+			logger.log(Level.INFO, "電子紙IP： " + ipAddress + " 更新完成");
 		} catch (Exception e) {
 			logger.log(Level.SEVERE, e.toString(), e);
 			return;
 		}
 	}
-	
-	private static boolean isHostReachable(String host, int timeout, int retries) {
-	    for (int i = 0; i < retries; i++) {
-	        try {
-	            InetAddress address = InetAddress.getByName(host);
-	            if (address.isReachable(timeout)) {
-	                return true;
-	            } else {
-	                logger.log(Level.INFO, "電子紙無法連線. 5秒後重試");
-	                Thread.sleep(2500);
-	                refreshURL(BASE_URL);
-	                Thread.sleep(2500);
-	            }
-	        } catch (Exception e) {
-	            logger.log(Level.SEVERE, e.toString(), e);
-	            logger.log(Level.INFO, "Exception occurred. Retrying in 5 seconds...");
-	            try {
-	                Thread.sleep(2500);
-	                refreshURL(BASE_URL);
-	                Thread.sleep(2500);
-	            } catch (InterruptedException ie) {
-	                Thread.currentThread().interrupt();
-	            }
-	        }
-	    }
-	    return false;
-	}
-	
-	public static boolean isIPInRange(String ip, String startRange, String endRange) {
-	    try {
-	        long ipLong = ipToLong(InetAddress.getByName(ip));
-	        long startRangeLong = ipToLong(InetAddress.getByName(startRange));
-	        long endRangeLong = ipToLong(InetAddress.getByName(endRange));
 
-	        return ipLong >= startRangeLong && ipLong <= endRangeLong;
-	    } catch (Exception e) {
-	        e.printStackTrace();
-	        return false;
-	    }
+	private static boolean isHostReachable(String ipAddress, int timeout, int retries) {
+
+		for (int i = 0; i < retries; i++) {
+			try {
+				InetAddress address = InetAddress.getByName(ipAddress);
+				if (address.isReachable(timeout)) {
+					return true;
+				} else {
+					logger.log(Level.INFO, ipAddress + " 電子紙無法連線. 5秒後重試");
+					Thread.sleep(2500);
+					refreshURL(ipAddress);
+					Thread.sleep(2500);
+				}
+			} catch (Exception e) {
+				logger.log(Level.SEVERE, e.toString(), e);
+				logger.log(Level.INFO, ipAddress + " 電子紙異常無法連線. 5秒後重試");
+				try {
+					Thread.sleep(2500);
+					refreshURL(ipAddress);
+					Thread.sleep(2500);
+				} catch (InterruptedException ie) {
+					Thread.currentThread().interrupt();
+				}
+			}
+		}
+		return false;
+	}
+
+	public static boolean isIPInRange(String ip, String startRange, String endRange) {
+		try {
+			long ipLong = ipToLong(InetAddress.getByName(ip));
+			long startRangeLong = ipToLong(InetAddress.getByName(startRange));
+			long endRangeLong = ipToLong(InetAddress.getByName(endRange));
+
+			return ipLong >= startRangeLong && ipLong <= endRangeLong;
+		} catch (Exception e) {
+			e.printStackTrace();
+			return false;
+		}
 	}
 
 	public static long ipToLong(InetAddress ip) {
-	    byte[] octets = ip.getAddress();
-	    long result = 0;
-	    for (byte octet : octets) {
-	        result <<= 8;
-	        result |= octet & 0xff;
-	    }
-	    return result;
-	}
-	
-	
-	public static String checkIPRange(String ipAddress) {
-    
-    if (isIPInRange(ipAddress, "192.168.225.100", "192.168.225.200")) {
-        System.out.println("IP is in range 192.168.225.100-200");
-        return "w";
-    } else
-		try {
-			if (ipToLong(InetAddress.getByName(ipAddress)) > ipToLong(InetAddress.getByName("192.168.225.200"))) {
-			    System.out.println("IP is greater than 192.168.225.200");
-			    return "r";
-			}
-		} catch (UnknownHostException e) {
-			e.printStackTrace();
+		byte[] octets = ip.getAddress();
+		long result = 0;
+		for (byte octet : octets) {
+			result <<= 8;
+			result |= octet & 0xff;
 		}
-	return "na";
+		return result;
 	}
-	
-	public static void refreshURL(String base_url) {
-		
-		try {
-	        RequestConfig requestConfig = RequestConfig.custom()
-	                .setSocketTimeout(5000)
-	                .setConnectTimeout(5000)
-	                .build();
 
-	        CloseableHttpClient httpClient = HttpClients.custom()
-	                .setDefaultRequestConfig(requestConfig)
-	                .build();
-			
-			HttpGet httpGet = new HttpGet(base_url);
+	public static void refreshURL(String ipAddress) {
+		String baseUrl = "http://" + ipAddress + "/";
+		try {
+			RequestConfig requestConfig = RequestConfig.custom().setSocketTimeout(5000).setConnectTimeout(5000).build();
+
+			CloseableHttpClient httpClient = HttpClients.custom().setDefaultRequestConfig(requestConfig).build();
+
+			HttpGet httpGet = new HttpGet(baseUrl);
 			try (CloseableHttpResponse response = httpClient.execute(httpGet)) {
 				System.out.println(response.getStatusLine());
-				logger.log(Level.INFO, IPADDRESS + " 更新網頁成功");
+				logger.log(Level.INFO, baseUrl + " 更新網頁成功");
 			}
 		} catch (Exception e) {
-			logger.log(Level.INFO, IPADDRESS + " 更新網頁失敗");
+			logger.log(Level.INFO, baseUrl + " 更新網頁失敗");
 		}
 	}
 
